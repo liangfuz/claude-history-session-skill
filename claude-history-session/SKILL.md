@@ -31,7 +31,7 @@ python3 scripts/session_history.py
 
 （脚本路径相对本技能目录；不确定时用绝对路径 `~/.claude/skills/claude-history-session/scripts/session_history.py`。）
 
-默认输出：**跨所有项目**、按最近活跃时间**倒序**、**每页 10 条**，带全局序号。展示后，脚本会自动附上"回复序号即可接上"的提示。
+默认输出：**跨所有项目**、按最近活跃时间**倒序**、**每页 20 条**，带全局序号。展示后，脚本会自动附上"回复序号即可接上"的提示。
 
 ## 工作流
 
@@ -79,11 +79,11 @@ Windows 用 `cd /d "..."`，可直接粘进 cmd / PowerShell。
 
 ## 翻页与筛选
 
-会话很多时默认只显示最近 10 条。用户想看得更早就翻页：
+会话很多时默认只显示最近 20 条。用户想看得更早就翻页：
 
 ```bash
-python3 scripts/session_history.py list --page 2      # 第 2 页（#11-20）
-python3 scripts/session_history.py list --page 3 -n 20  # 第 3 页，每页 20 条
+python3 scripts/session_history.py list --page 2      # 第 2 页（#21-40）
+python3 scripts/session_history.py list --page 3 -n 30  # 第 3 页，每页 30 条
 python3 scripts/session_history.py list --grep 部署     # 只留主题含"部署"的
 python3 scripts/session_history.py list --current      # 只看当前目录
 python3 scripts/session_history.py list --json         # 结构化输出

@@ -32,6 +32,16 @@ COMMAND_TAG_RE = re.compile(r"<command-(?:name|message)>.*?</command-(?:name|mes
 COMMAND_ARGS_TAG_RE = re.compile(r"</?command-args>")
 LOCAL_CMD_RE = re.compile(r"<local-command[^>]*>.*?</local-command[^>]*>", re.S)
 ANY_TAG_RE = re.compile(r"<[^>]+>")
+COMMAND_NAME_RE = re.compile(r"<command-name>\s*(/[A-Za-z][\w-]*)")
+UUID_RE = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+
+# Slash commands that are pure UI/plumbing: their args ("/resume interview")
+# describe what the user was trying to do, never the session's topic.
+BUILTIN_COMMANDS = {
+    "/resume", "/exit", "/quit", "/clear", "/compact", "/help", "/login",
+    "/logout", "/model", "/config", "/status", "/vim", "/doctor", "/cost",
+    "/bug", "/release-notes", "/privacy-settings", "/terminal-setup",
+}
 
 
 def encode_cwd(path: str) -> str:
@@ -52,6 +62,31 @@ def clean_text(text: str, limit: int = 80) -> str:
     if len(text) > limit:
         text = text[: limit - 1].rstrip() + "…"
     return text
+
+
+def is_meaningful(text: str) -> bool:
+    """Does this read like a real topic, rather than prompt noise?
+
+    Filters the kinds of strings that pollute a topic when a session has no
+    ai-title: the bare "9"/"7"/"1" a user types to pick a session from this
+    very tool, lone punctuation, and the boilerplate a skill injects.
+    """
+    t = text.strip()
+    if len(t) < 2:
+        return False
+    if not re.search(r"[A-Za-z一-鿿]", t):
+        return False  # pure digits / punctuation, nothing to say
+    if UUID_RE.fullmatch(t):
+        return False  # a bare session id, e.g. left over from "/resume <id>"
+    if t.startswith("Base directory for this skill"):
+        return False
+    return True
+
+
+def is_builtin_command(raw: str) -> bool:
+    """True if the message is just a built-in slash command (its args are noise)."""
+    m = COMMAND_NAME_RE.search(raw)
+    return bool(m and m.group(1).lower() in BUILTIN_COMMANDS)
 
 
 def extract_topic_preview(block) -> str:
@@ -119,9 +154,9 @@ def parse_session(path: Path):
                         )
                         if not is_tool_result and not rec.get("isMeta"):
                             raw = extract_topic_preview(content)
-                            if raw and "<local-command" not in raw:
+                            if raw and "<local-command" not in raw and not is_builtin_command(raw):
                                 cleaned = clean_text(raw)
-                                if cleaned and first_user_prompt is None:
+                                if cleaned and is_meaningful(cleaned) and first_user_prompt is None:
                                     first_user_prompt = cleaned
                     turns += 1
     except OSError:
@@ -131,13 +166,19 @@ def parse_session(path: Path):
         # Fall back to decoding the parent directory name.
         cwd = path.parent.name
 
-    topic = ai_title or last_prompt or first_user_prompt or ""
+    last_prompt_clean = clean_text(last_prompt) if last_prompt else None
+    # Prefer the AI title; fall back to the first real user prompt (the best
+    # proxy for why the session exists), and only last-resort to the latest
+    # prompt — which is often just the "9" a user typed to pick a session here.
+    topic = ai_title or first_user_prompt or (
+        last_prompt_clean if last_prompt_clean and is_meaningful(last_prompt_clean) else None
+    ) or ""
     return {
         "session_id": session_id,
         "cwd": cwd,
         "ai_title": ai_title,
-        "first_prompt": clean_text(first_user_prompt) if first_user_prompt else None,
-        "last_prompt": clean_text(last_prompt) if last_prompt else None,
+        "first_prompt": first_user_prompt,
+        "last_prompt": last_prompt_clean,
         "topic": clean_text(topic, limit=100) or "(无标题)",
         "turns": turns,
         "started_at": first_ts,
@@ -218,7 +259,7 @@ def print_table(sessions, show_project: bool, start_index: int = 1):
     for offset, s in enumerate(sessions):
         row = [str(start_index + offset), human_time(s["last_at"], s["mtime"]), s["topic"]]
         if show_project:
-            row.append(short_cwd(s["cwd"]))
+            row.append(s["cwd"])
         row += [s["session_id"][:8], str(s["turns"])]
         rows.append(row)
 
@@ -276,7 +317,7 @@ def cmd_list(args):
         ]
 
     total = len(sessions)
-    page_size = args.limit or 10
+    page_size = args.limit or 20
     pages = max(1, (total + page_size - 1) // page_size)
     page = min(max(1, args.page), pages)
     start = (page - 1) * page_size
@@ -439,7 +480,7 @@ def build_parser():
     pl = sub.add_parser("list", help="列出历史会话（默认命令）")
     pl.add_argument("--current", action="store_true", help="只看当前目录的会话（默认跨所有项目）")
     pl.add_argument("--project", help="指定项目目录")
-    pl.add_argument("-n", "--limit", type=int, help="每页显示多少条（默认 10）")
+    pl.add_argument("-n", "--limit", type=int, help="每页显示多少条（默认 20）")
     pl.add_argument("-p", "--page", type=int, default=1, help="页码，从 1 开始（默认 1）")
     pl.add_argument("--grep", help="按关键词过滤主题")
     pl.add_argument("--json", action="store_true", help="输出本页 JSON")
