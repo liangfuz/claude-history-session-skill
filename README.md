@@ -1,5 +1,7 @@
 # claude-history-session
 
+[English](README.en.md) | 中文
+
 > 关掉终端重开之后，一句话找回并接上之前的 Claude Code 会话。
 
 `claude-history-session` 是一个 Claude Code 技能（Skill）：读取 Claude Code 落在磁盘上的会话记录，按时间倒序列出最近的会话主题，并**直接把选中的会话接上**——自动开一个新终端窗口跑 `claude --resume`，不用手动复制粘贴。
@@ -31,10 +33,11 @@ Claude Code 的会话都保存在本地，但想找回之前的那一段时却�
 | 2  | 29分钟前  | WMS 库存对账脚本            | wms-account-script   | ee0450b8 | 15   |
 | 3  | 2小时前   | 用 Python 写个预测补货接口  | forecast-py         | 249f8d16 | 35   |
 | 4  | 昨天      | 梳理订单状态机设计          | order-service         | a28f3897 | 8    |
-| 5  | 3天前     | (无标题)                    | scratch               | 3d31cee0 | 2    |
+| 5  | 3天前     | 排查 StarRocks 导入超时      | data-import          | 3d31cee0 | 27   |
 
 回复**序号**即可接上对应会话（会给出 /resume 命令）。
 想看更早的会话，说“下一页”或运行 `--page 2`。
+已隐藏 15 条无意义主题（hello / 上一页 / 下一页 / (无标题)），如果需要全部显示请回复「全部显示」。
 ```
 
 然后你只回一个序号，比如 `2`：
@@ -130,14 +133,35 @@ Claude ▸ （自动新开终端窗口，接上第 2 条会话）
 python3 scripts/session_history.py list --page 2      # 第 2 页（#11-20）
 python3 scripts/session_history.py list --page 3 -n 20 # 第 3 页，每页 20 条
 python3 scripts/session_history.py list --grep 部署    # 只保留主题含“部署”的
+python3 scripts/session_history.py list --all         # 显示全部（含被隐藏的无意义主题）
 ```
+
+#### 隐藏无意义主题
+
+主题为 `hello`、`上一页`、`下一页`、`(无标题)`，以及英文的 `previous page`、`next page`、`(untitled)` 的会话默认会被**隐藏**——它们既看不出聊了什么，也没有 resume 价值。过滤用小写比较，中英噪声词一并生效。每次列表末尾都会提示：
+
+```
+已隐藏 15 条无意义主题（hello / 上一页 / 下一页 / (无标题)），如果需要全部显示请回复「全部显示」。
+```
+
+（英文环境为 `Hidden 15 noise sessions (hello / previous page / next page / untitled). Reply "show all" to list everything.`）
+
+跟它说一句「**全部显示**」（或英文的 **show all**，或直接在终端加 `--all`）即可把这些会话也列出来。
+
+#### 输出语言
+
+脚本按环境自动决定输出中文还是英文：
+
+- 本地时区为 **UTC+8**，或系统 locale 以 **`zh`** 开头 → **中文**；
+- 其余情况 → **英文**；
+- 可用 `CLAUDE_HISTORY_LANG=zh|en` 或 `--lang zh|en` 强制覆盖。
 
 ### 方式二：直接运行脚本
 
 不经过 Claude，自己在终端里跑也行（脚本路径相对本目录）：
 
 ```bash
-# 默认：列出全部项目、最近 10 条、按时间倒序
+# 默认：列出全部项目、最近 20 条、按时间倒序
 python3 scripts/session_history.py
 
 # 只看当前目录下的会话
@@ -167,10 +191,14 @@ python3 scripts/session_history.py launch ee0450b8 --print
 |------|------|
 | `--current` | 只看当前目录的项目（默认跨所有项目） |
 | `--project <目录>` | 指定某个项目目录 |
-| `-n, --limit <N>` | 每页显示条数（默认 10） |
+| `-n, --limit <N>` | 每页显示条数（默认 20） |
 | `-p, --page <N>` | 页码，从 1 开始 |
 | `--grep <关键词>` | 按关键词过滤主题 |
+| `--all` | 显示全部，不过滤 `hello`/`上一页`/`下一页`/`(无标题)`/`previous page`/`next page`/`(untitled)` 等无意义主题 |
+| `--lang zh\|en` | 强制输出语言（覆盖时区/locale 自动判定） |
 | `--json` | 输出结构化的本页 JSON |
+
+> `--all` 同样适用于 `resume` / `launch`：默认它们解析不到被隐藏的会话，加上 `--all` 即可。
 
 ---
 
@@ -207,8 +235,8 @@ Claude Code 把每个会话的完整记录写在：
 **Q：为什么不能用方向键选择？**
 见上文「为什么是回序号」。脚本在无 TTY 环境运行，拿不到 `/dev/tty`。
 
-**Q：列表里出现 `(无标题)` 或 `hello`？**
-`(无标题)` 通常是只跑过 `/clear`、`/resume` 的会话；`hello` 之类的多是测试会话，可忽略。
+**Q：列表里看不到一些会话，比如标题是 `hello` / `下一页` / `(无标题)` 的？**
+这类主题（`hello`、`上一页`、`下一页`、`(无标题)`，以及英文的 `previous page` / `next page` / `(untitled)`）默认被**隐藏**，因为看不出聊了什么。想全看就说「全部显示」（英文 `show all`），或在命令后面加 `--all`。
 
 **Q：会话属于别的项目目录，`/resume` 找不到？**
 `/resume <id>` 在部分版本会按当前目录过滤。跨项目会话请先 `cd <该目录>`，或用 `launch`（它会自动带上正确的目录）。
@@ -220,7 +248,8 @@ Claude Code 把每个会话的完整记录写在：
 ```
 claude-history-session/
 ├── SKILL.md               # 技能定义（给 Claude 看的指令）
-├── README.md              # 本文件
+├── README.md              # 本文件（中文）
+├── README.en.md           # 英文版 README
 └── scripts/
     └── session_history.py # 核心脚本：解析会话、列主题、生成/执行接上命令
 ```
